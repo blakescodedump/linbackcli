@@ -5,29 +5,42 @@
 # Custom Directories can be added, existing ones can be removed.
 #
 
+dirArr=()
 #The intro function.
 intro() {
-    echo "Type the NAME of the device partion you want to use (Ex. sda1, sda2, sdb5)."
-    echo "If you don't know, type 'help'"
+    { rm settings.txt
+    } &> /dev/null #Clears settings by deleting file if it exists. Also ignores errors.
+    touch settings.txt # Makes settings file again.
+    echo "Type the ID of the device partition you want to use (Ex. sda1, sda2, sdb5)."
+    echo "If you don't know, type 'help' or 'h'."
     read -r vardev
-    if [ "$vardev" = "help" ] #Checks if you need help.
+    if [ "$vardev" = "help" ] || [ "$vardev" = "h" ] #Checks if you need help.
     then
         lsblk -e7 -f -o name,label,size #Pulls up device list.
-        echo "Type the NAME of the device partion you want to use (Ex. sda1, sda2, sdb5)."
+        echo "Type the ID of the device partition you want to use (Ex. sda1, sda2, sdb5)."
         read -r vardev #vardev is the name variable.
     fi
-    #Prompts User to Enter Device Label
-    echo "Type the LABEL of the device partion you want to use (Ex. SanDisk, USB Drive, SD Card)."
-    #echo "If you don't know, type 'help'"
-    read -r varlab #varlab is the label variable.
-    echo "NAME: ""$vardev"" LABEL: ""$varlab""."
     {
-        #cd "$directory" || exit
-        echo "label=" "$varlab" >> settings.txt
-        echo "name=" "$vardev" >> settings.txt
+        echo "name:" "$vardev" >> settings.txt
+        echo "directories:" >> settings.txt
     } &> /dev/null #Hides writing of files.
+    adddir
 }
 
+#Adds Directories
+adddir(){
+    echo "Type each directory you want to have backed up. To stop adding directories, type 'STOP' in all caps."
+    while [ "$tempArr" != "STOP" ]
+    do    
+        read -r tempArr
+        if [ "$tempArr" != "STOP" ]
+        then
+            dirArr=("$tempArr" "${dirArr[@]}")
+            echo "$tempArr" >> settings.txt
+            echo "Directory ""$tempArr"" added! To stop adding directories, type 'STOP' in all caps."
+        fi
+    done
+}
 
 #Gets Username
 { 
@@ -37,103 +50,78 @@ directory=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd ) #
 user=$(whoami) #Sets username to variable, "user".
 echo ""
 echo "Hello," "$user""!"
-echo "Welcome to CLI Linux Backup Tool 2.0!"
+echo "Welcome to CLI Linux Backup Tool 3.0!"
+echo "Located at ""$directory""."
 echo ""
 
-#Makes Settings File. UNFINISHED! SETTINGS WILL BE A NEW FEATURE SOON!
+#Makes Settings File.
 echo ""
 cd "$directory" || exit
 if [ -f "settings.txt" ] # Checks if settings file exists.
 then
-    #Skips intro if settings exists. UNFINISHED! SKIP INTRO WILL BE A NEW FEATURE SOON!
-    echo "Start process without changing settings? [y/n]"
+    #Skips intro if settings exists.
+    echo "Start process without changing settings or adding new folders? [Y/n]"
     read -r skipintro
     if [ "$skipintro" = "no" ] || [ "$skipintro" = "n" ] 
     then
         intro
-    #else
-    #    while IFS= read -r line; do
-    #        echo "Text read from file: $line"
-    #    done < settings.txt
+    else
+        vardev=$(sed -n '1p' settings.txt | awk '{print $2}') #Gets Device Name from Settings File
+        #echo "$vardev"
+        while IFS= read -r line
+        do
+            if [ "$line" != "directories:" ] || [ "$line" != "name= ""$vardev" ]
+            then
+                dirArr=("$line" "${dirArr[@]}")
+            fi
+        echo "${dirArr[@]}"
+        done < <(tail -n 2 settings.txt) #Makes sure it only prints past directories.
     fi
 else
-    #cd "$directory" || exit
-    touch settings.txt # Makes settings file if it doesn't exist.
     intro
 fi
 echo ""
 
+#SEARCHES FOR DEVICE MOUNT DIRECTORY
+findmountdir(){
+    {
+        mntdir=$(findmnt -o TARGET,SOURCE /dev/"$vardev" | tail -n 1 | awk '{print $1}') #Searches for Mount and Defines to Variable
+    } &> /dev/null #Hide
+        echo "Your device is currently mounted at ""$mntdir""."
+}
+
 # MOUNTING
 cd /
-echo "Mounting device..."
-if [ -f /run/media/"$user"/"$varlab" ];
+echo "Checking if device is mounted..."
+findmountdir
+if [ "$mntdir" = "" ];
     then
-        cd /run/media/"$user" || exit
-        { sudo mkdir -p "$vardev" #Makes folder if a mount folder by this name isn't here.
+        cd /mnt/ || exit
+        { 
+            #sudo rm -r "$vardev" #In case the folder exists.
+            sudo mkdir "$vardev" #Makes folder if a mount folder by this name isn't here.
         } &> /dev/null #Hide
+        findmountdir
     fi
-{ sudo mount /dev/"$vardev" /run/media/"$user"/"$varlab" 
+{ sudo mount /dev/"$vardev" /mnt/"$vardev" #Mounts device.
 } &> /dev/null #Hide
 
-dircount=0 #Sets counter for each directory chosen.
+# COPYING/SYNCING
 cd / #Goes to Root of Linux Filesystem
-
-#UPDATE BACKUP FOR DOCUMENTS
-let "dircount++"
+for i in "${!dirArr[@]}"
+do
 echo ""
-echo "Directory ""$dircount"": Copying files, this may take a while. CTRL+C to cancel."
-sudo cp -n -R ~/Documents /run/media/"$user"/"$vardev"/ #Copies to Backup Drive
-echo "Copying for Directory ""$dircount"" done."
-echo ""
-
-#UPDATE BACKUP FOR PICTURES
-let "dircount++"
-echo ""
-echo "Directory ""$dircount"": Copying files, this may take a while. CTRL+C to cancel."
-sudo cp -n -R ~/Pictures /run/media/"$user"/"$vardev"/ #Copies to Backup Drive
-echo "Copying for Directory ""$dircount"" done."
-echo ""
-
-#UPDATE BACKUP FOR DESKTOP
-let "dircount++"
-echo ""
-echo "Directory ""$dircount"": Copying files, this may take a while. CTRL+C to cancel."
-sudo cp -n -R ~/Desktop /run/media/"$user"/"$vardev"/ #Copies to Backup Drive
-echo "Copying for Directory ""$dircount"" done."
-echo ""
-
-#UPDATE BACKUP FOR DOWNLOADS
-let "dircount++"
-echo ""
-echo "Directory ""$dircount"": Copying files, this may take a while. CTRL+C to cancel."
-sudo cp -n -R ~/Downloads /run/media/"$user"/"$vardev"/ #Copies to Backup Drive
-echo "Copying for Directory ""$dircount"" done."
-echo ""
-
-#UPDATE BACKUP FOR MUSIC
-let "dircount++"
-echo ""
-echo "Directory ""$dircount"": Copying files, this may take a while. CTRL+C to cancel."
-sudo cp -n -R ~/Music /run/media/"$user"/"$vardev"/ #Copies to Backup Drive
-echo "Copying for Directory ""$dircount"" done."
-echo ""
-
-#UPDATE BACKUP FOR VIDEOS
-let "dircount++"
-echo ""
-echo "Directory ""$dircount"": Copying files, this may take a while. CTRL+C to cancel."
-sudo cp -n -R ~/Videos /run/media/"$user"/"$vardev"/ #Copies to Backup Drive
-echo "Copying for Directory ""$dircount"" done."
-echo ""
-
-#Finishing Message
+echo "Directory ""${dirArr[$i]}"": Copying files, this may take a while. CTRL+C to cancel."
+    if [ -d "$mntdir"/LinBackups/"${dirArr[$i]}" ]
+    then
+        sudo mkdir -p "$mntdir"/LinBackups
+        sudo cp -R "${dirArr[$i]}" "$mntdir"/LinBackups/ #Copies to Backup Drive
+    else
+        sudo rsync -r "${dirArr[$i]}" "$mntdir"/LinBackups/ #Syncs with Backup Drive
+    fi
+    echo "Copying for Directory ""${dirArr[$i]}"" done."
+    echo ""
+done
 echo "If there are no errors above, all your files copied successfully."
-
-#UPDATE BACKUP TEMPLATE
-#let "dircount++"
-#echo "DIR Copying files, this may take a while. CTRL+C to cancel."
-#sudo cp -n -R [DIRECTORY OF YOUR CHOICE] /run/media/"$user"/"$vardev"/ #Copies to Backup Drive
-#echo "Copying for Directory ""$dircount"" done."
-
-#Do not use the template from below the line above. The following is not finished.
-#sudo cp -n -R /run/media/"$user"/"$vardev" ~/Documents #Update Backup UNFINISHED (BUGGY AT THE MOMENT)
+cd "$directory" || exit
+#Finishing Message
